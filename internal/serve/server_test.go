@@ -1,0 +1,105 @@
+package serve_test
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/devenjarvis/lathe/internal/serve"
+	"github.com/devenjarvis/lathe/internal/store"
+)
+
+func makeTestTutorial(t *testing.T, dir, slug string, series bool) string {
+	t.Helper()
+	tutDir := filepath.Join(dir, slug)
+	if err := os.MkdirAll(tutDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	tut := &store.Tutorial{
+		Slug:    slug,
+		Title:   "Test Tutorial",
+		Status:  store.StatusVerified,
+		Series:  series,
+		Created: time.Now(),
+	}
+	if series {
+		tut.Parts = []string{"part-01.md", "part-02.md"}
+		for _, p := range tut.Parts {
+			if err := os.WriteFile(filepath.Join(tutDir, p), []byte("# "+p), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	} else {
+		if err := os.WriteFile(filepath.Join(tutDir, "index.md"), []byte("# Index"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.WriteMetadata(tutDir, tut); err != nil {
+		t.Fatal(err)
+	}
+	return tutDir
+}
+
+func TestListPage(t *testing.T) {
+	dir := t.TempDir()
+	makeTestTutorial(t, dir, "test-tutorial", false)
+
+	srv := serve.NewServer(dir)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("GET / = %d, want %d", w.Code, http.StatusOK)
+	}
+	if !strings.Contains(w.Body.String(), "Test Tutorial") {
+		t.Error("GET / response does not contain tutorial title")
+	}
+}
+
+func TestTutorialPage(t *testing.T) {
+	dir := t.TempDir()
+	makeTestTutorial(t, dir, "test-tutorial", false)
+
+	srv := serve.NewServer(dir)
+	req := httptest.NewRequest(http.MethodGet, "/test-tutorial/", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("GET /test-tutorial/ = %d, want %d", w.Code, http.StatusOK)
+	}
+	if !strings.Contains(w.Body.String(), "Index") {
+		t.Error("GET /test-tutorial/ response does not contain page content")
+	}
+}
+
+func TestSeriesPartPage(t *testing.T) {
+	dir := t.TempDir()
+	makeTestTutorial(t, dir, "test-series", true)
+
+	srv := serve.NewServer(dir)
+	req := httptest.NewRequest(http.MethodGet, "/test-series/part-01.md", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("GET /test-series/part-01.md = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestNotFound(t *testing.T) {
+	dir := t.TempDir()
+	srv := serve.NewServer(dir)
+	req := httptest.NewRequest(http.MethodGet, "/nonexistent/", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("GET /nonexistent/ = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
