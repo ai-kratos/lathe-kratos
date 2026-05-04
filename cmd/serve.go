@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"runtime"
 
@@ -30,16 +31,18 @@ var serveCmd = &cobra.Command{
 }
 
 func openBrowser(url string) {
-	var cmd string
+	var bin string
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = "open"
+		bin = "open"
 	case "linux":
-		cmd = "xdg-open"
+		bin = "xdg-open"
 	default:
 		return
 	}
-	exec.Command(cmd, url).Start()
+	if err := exec.Command(bin, url).Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not open browser: %v\n", err)
+	}
 }
 
 func init() {
