@@ -22,7 +22,10 @@ func TestRenderMarkdown(t *testing.T) {
 	if !strings.Contains(html, "<code>test</code>") {
 		t.Errorf("RenderMarkdown() missing inline <code>, got:\n%s", html)
 	}
-	if !strings.Contains(html, "fmt.Println") {
-		t.Errorf("RenderMarkdown() code block content missing, got:\n%s", html)
+	if !strings.Contains(html, "<pre") {
+		t.Errorf("RenderMarkdown() code block not rendered as <pre>, got:\n%s", html)
+	}
+	if !strings.Contains(html, "style=") {
+		t.Errorf("RenderMarkdown() syntax highlighting not applied (no style attribute), got:\n%s", html)
 	}
 }
