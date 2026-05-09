@@ -70,6 +70,15 @@
     nav a{display:block;font-size:.85rem;color:var(--text-subtle);text-decoration:none;padding:.35rem .6rem;border-radius:5px}
     nav a:hover{background:var(--hover-bg);color:var(--text)}
     nav a.active{background:var(--active-bg);color:var(--active-text);font-weight:500}
+    .back-link{display:inline-flex;align-items:center;gap:.3rem;font-size:.78rem;color:var(--text-faint);text-decoration:none;padding:.2rem .25rem;margin:-.2rem 0 .85rem;border-radius:4px}
+    .back-link:hover{color:var(--active-text);background:transparent}
+    nav .toc-label{font-size:.7rem;font-weight:600;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;margin:.85rem .4rem .35rem;line-height:1.3}
+    nav ul.toc{list-style:none;margin:0;padding:0}
+    nav ul.toc li{margin:.1rem 0}
+    nav ul.toc a{font-size:.82rem;line-height:1.4;padding:.32rem .6rem;color:var(--text-subtle)}
+    nav ul.toc a:hover{background:var(--hover-bg);color:var(--text)}
+    /* Anchor offset so headings aren't flush to the top when jumped to. */
+    h2[id],h3[id]{scroll-margin-top:1rem}
     .theme-toggle{margin-top:auto;background:transparent;border:1px solid var(--border);color:var(--text-subtle);font:inherit;font-size:.8rem;padding:.4rem .6rem;border-radius:5px;cursor:pointer;display:flex;align-items:center;gap:.4rem;width:100%}
     .theme-toggle:hover{background:var(--hover-bg);color:var(--text)}
     .theme-toggle .icon{font-size:.95rem;line-height:1}
@@ -122,8 +131,19 @@
     .mermaid:not([data-processed]){font-family:'JetBrains Mono','Fira Code',monospace;font-size:.8rem;text-align:left;white-space:pre;color:var(--text-faint)}
     .mermaid svg{max-width:100%;height:auto}
 
+    /* Series TOC at bottom of part */
+    .series-toc{margin-top:3rem;padding-top:1.5rem;border-top:1px solid var(--border)}
+    .series-toc > h2{font-size:.95rem;font-weight:600;margin:0 0 .7rem;color:var(--text-muted);line-height:1.3;letter-spacing:.01em}
+    .series-toc ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.4rem}
+    .series-toc li{margin:0}
+    .series-toc a,.series-toc .current-row{display:flex;gap:.65rem;align-items:baseline;padding:.6rem .85rem;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--text-subtle);text-decoration:none;font-size:.92rem;line-height:1.3}
+    .series-toc a:hover{color:var(--active-text);border-color:var(--active-text);background:var(--hover-bg)}
+    .series-toc .current-row{color:var(--active-text);border-color:var(--active-text);background:var(--active-bg);font-weight:500}
+    .series-toc .part-num{font-size:.7rem;font-weight:600;letter-spacing:.04em;color:var(--text-faint);text-transform:uppercase;flex-shrink:0;min-width:3.4rem}
+    .series-toc .current-row .part-num{color:var(--active-text)}
+
     /* Inline prev/next part navigation */
-    .part-nav{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-top:3rem;padding-top:1.5rem;border-top:1px solid var(--border)}
+    .part-nav{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-top:1.5rem;padding-top:1.5rem;border-top:1px solid var(--border)}
     .part-nav a{min-width:0;text-decoration:none;color:var(--text-subtle);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:.65rem .9rem;display:flex;flex-direction:column;gap:.2rem;transition:color 120ms,border-color 120ms,background 120ms}
     .part-nav a:hover{color:var(--active-text);border-color:var(--active-text);background:var(--hover-bg)}
     .part-nav .label{font-size:.72rem;font-weight:600;letter-spacing:.03em;color:var(--text-faint)}
@@ -195,16 +215,16 @@
 </header>
 <div class="layout">
   <nav id="sidebar">
+    <a href="/" class="back-link">← All tutorials</a>
     <h2>{{.Tutorial.Title}}</h2>
     {{if eq .Tutorial.Status "verified"}}<span class="badge verified">✅ Verified</span>
     {{else if eq .Tutorial.Status "verifying"}}<span class="badge verifying">⏳ Verifying…</span>
     {{else if eq .Tutorial.Status "failed"}}<span class="badge failed">❌ Failed</span>
     {{end}}
-    {{if .Tutorial.Series}}
-    <ul>
-      {{range $i, $part := .Tutorial.Parts}}
-      <li><a href="/{{$.Tutorial.Slug}}/{{$part}}"{{if eq $part $.CurrentPart}} class="active"{{end}}>Part {{add $i 1}}</a></li>
-      {{end}}
+    {{if .TOC}}
+    <h3 class="toc-label">On this page</h3>
+    <ul class="toc">
+      {{range .TOC}}<li><a href="#{{.ID}}">{{.Text}}</a></li>{{end}}
     </ul>
     {{end}}
     <button type="button" class="theme-toggle" data-theme-toggle aria-label="Toggle dark mode">
@@ -214,6 +234,22 @@
   </nav>
   <main>
     {{.Content}}
+    {{if and .Tutorial.Series (gt (len .Tutorial.Parts) 1)}}
+    <section class="series-toc" aria-label="In this series">
+      <h2>In this series</h2>
+      <ol>
+        {{range .SeriesTOC}}
+        <li>
+          {{if .Current}}
+          <span class="current-row" aria-current="page"><span class="part-num">Part {{.Number}}</span><span class="title">{{.Title}}</span></span>
+          {{else}}
+          <a href="/{{$.Tutorial.Slug}}/{{.Slug}}"><span class="part-num">Part {{.Number}}</span><span class="title">{{.Title}}</span></a>
+          {{end}}
+        </li>
+        {{end}}
+      </ol>
+    </section>
+    {{end}}
     {{if .Tutorial.Series}}
     <nav class="part-nav" aria-label="Part navigation">
       {{if .PrevPart}}

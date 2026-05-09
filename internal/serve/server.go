@@ -166,13 +166,23 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+// SeriesEntry is a row in the "In this series" list rendered at the bottom of
+// each series part. Title is precomputed from the part filename so the template
+// doesn't need to call into the store package.
+type SeriesEntry struct {
+	Slug    string
+	Title   string
+	Number  int
+	Current bool
+}
+
 func (s *Server) renderPart(w http.ResponseWriter, tut *store.Tutorial, tutDir, part string) {
 	src, err := os.ReadFile(filepath.Join(tutDir, part))
 	if err != nil {
 		http.Error(w, "part not found", http.StatusNotFound)
 		return
 	}
-	content, err := RenderMarkdown(src)
+	content, toc, err := RenderMarkdownWithTOC(src)
 	if err != nil {
 		http.Error(w, "render error", http.StatusInternalServerError)
 		return
@@ -180,8 +190,16 @@ func (s *Server) renderPart(w http.ResponseWriter, tut *store.Tutorial, tutDir, 
 
 	var prevPart, nextPart, prevTitle, nextTitle string
 	var prevNumber, nextNumber, currentNumber int
+	var seriesTOC []SeriesEntry
 	if tut.Series {
+		seriesTOC = make([]SeriesEntry, 0, len(tut.Parts))
 		for i, p := range tut.Parts {
+			seriesTOC = append(seriesTOC, SeriesEntry{
+				Slug:    p,
+				Title:   store.SlugToTitle(strings.TrimSuffix(p, ".md")),
+				Number:  i + 1,
+				Current: p == part,
+			})
 			if p == part {
 				currentNumber = i + 1
 				if i > 0 {
@@ -194,7 +212,6 @@ func (s *Server) renderPart(w http.ResponseWriter, tut *store.Tutorial, tutDir, 
 					nextTitle = store.SlugToTitle(strings.TrimSuffix(nextPart, ".md"))
 					nextNumber = i + 2
 				}
-				break
 			}
 		}
 	}
@@ -213,6 +230,8 @@ func (s *Server) renderPart(w http.ResponseWriter, tut *store.Tutorial, tutDir, 
 		"NextTitle":         nextTitle,
 		"PrevNumber":        prevNumber,
 		"NextNumber":        nextNumber,
+		"TOC":               toc,
+		"SeriesTOC":         seriesTOC,
 	}); err != nil {
 		http.Error(w, "template error", http.StatusInternalServerError)
 		return

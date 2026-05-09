@@ -184,6 +184,100 @@ func TestSeriesPartPrevNext(t *testing.T) {
 	}
 }
 
+func TestSeriesSidebarAndBottomList(t *testing.T) {
+	dir := t.TempDir()
+	tutDir := filepath.Join(dir, "test-series")
+	if err := os.MkdirAll(tutDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	tut := &store.Tutorial{
+		Slug:    "test-series",
+		Title:   "Test Series",
+		Status:  store.StatusVerified,
+		Series:  true,
+		Parts:   []string{"part-01.md", "part-02.md"},
+		Created: time.Now(),
+	}
+	// Part 1 has two h2 sections so we can assert TOC links exist.
+	body1 := "# Part One\n\n## Setup\n\nFoo.\n\n## Wire it up\n\nBar.\n"
+	if err := os.WriteFile(filepath.Join(tutDir, "part-01.md"), []byte(body1), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tutDir, "part-02.md"), []byte("# Part Two\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.WriteMetadata(tutDir, tut); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := serve.NewServer(dir)
+	req := httptest.NewRequest(http.MethodGet, "/test-series/part-01.md", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /test-series/part-01.md = %d, want %d", w.Code, http.StatusOK)
+	}
+	body := w.Body.String()
+
+	// Sidebar should contain the back-link and the on-page TOC (no parts list).
+	if !strings.Contains(body, `class="back-link"`) || !strings.Contains(body, "All tutorials") {
+		t.Error("sidebar missing back-link to /")
+	}
+	if !strings.Contains(body, "On this page") {
+		t.Error("sidebar missing 'On this page' label")
+	}
+	if !strings.Contains(body, `href="#setup"`) {
+		t.Errorf("sidebar TOC missing anchor to first h2; body excerpt:\n%s", body)
+	}
+	if !strings.Contains(body, `href="#wire-it-up"`) {
+		t.Error("sidebar TOC missing anchor to second h2")
+	}
+
+	// The old in-sidebar parts list pattern (an <a class="active"> inside the
+	// sidebar pointing to the current part's URL) should no longer appear.
+	oldPattern := `<a href="/test-series/part-01.md" class="active"`
+	if strings.Contains(body, oldPattern) {
+		t.Errorf("sidebar still renders old parts-list pattern: %s", oldPattern)
+	}
+
+	// Bottom of main should contain the new "In this series" section listing
+	// all parts, with the current part marked.
+	if !strings.Contains(body, `class="series-toc"`) {
+		t.Error("main missing .series-toc section")
+	}
+	if !strings.Contains(body, "In this series") {
+		t.Error("main missing 'In this series' label")
+	}
+	if !strings.Contains(body, `class="current-row"`) {
+		t.Error("series-toc missing current-row marker for current part")
+	}
+	// Non-current parts must be real links.
+	if !strings.Contains(body, `href="/test-series/part-02.md"`) {
+		t.Error("series-toc missing link to non-current part")
+	}
+}
+
+func TestNonSeriesNoSeriesTOC(t *testing.T) {
+	dir := t.TempDir()
+	makeTestTutorial(t, dir, "single", false)
+	srv := serve.NewServer(dir)
+	req := httptest.NewRequest(http.MethodGet, "/single/", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /single/ = %d, want %d", w.Code, http.StatusOK)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, `class="series-toc"`) {
+		t.Error("non-series tutorial should not render .series-toc block")
+	}
+	if strings.Contains(body, "In this series") {
+		t.Error("non-series tutorial should not render 'In this series' label")
+	}
+}
+
 func TestNonSeriesNoPartNav(t *testing.T) {
 	dir := t.TempDir()
 	makeTestTutorial(t, dir, "single", false)
