@@ -12,8 +12,19 @@ import (
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/yuin/goldmark"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/parser"
 	goldmarkhtml "github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/text"
 )
+
+// TOCEntry is a single h2 heading collected for the in-page table of contents
+// rendered in the sidebar. ID matches the auto-heading-id slug, so anchor links
+// (#first-section) jump directly to the heading.
+type TOCEntry struct {
+	ID   string
+	Text string
+}
 
 const (
 	lightStyle = "github"
@@ -35,6 +46,14 @@ var calloutBlock = regexp.MustCompile(`(?m)^[ \t]{0,3}>[ \t]*\[!(NOTE|TIP|WARNIN
 var calloutLineStrip = regexp.MustCompile(`(?m)^[ \t]{0,3}> ?`)
 
 func RenderMarkdown(src []byte) ([]byte, error) {
+	out, _, err := RenderMarkdownWithTOC(src)
+	return out, err
+}
+
+// RenderMarkdownWithTOC renders markdown to HTML and returns a list of h2
+// headings for the in-page TOC. parser.WithAutoHeadingID assigns each heading
+// a stable id slug; the same slug is captured here for anchor links.
+func RenderMarkdownWithTOC(src []byte) ([]byte, []TOCEntry, error) {
 	src = preprocessCallouts(src)
 	src = preprocessMermaid(src)
 	md := goldmark.New(
@@ -46,15 +65,66 @@ func RenderMarkdown(src []byte) ([]byte, error) {
 				),
 			),
 		),
+		goldmark.WithParserOptions(parser.WithAutoHeadingID()),
 		goldmark.WithRendererOptions(
 			goldmarkhtml.WithUnsafe(),
 		),
 	)
+	doc := md.Parser().Parse(text.NewReader(src))
+	toc := collectH2TOC(doc, src)
 	var buf bytes.Buffer
-	if err := md.Convert(src, &buf); err != nil {
-		return nil, err
+	if err := md.Renderer().Render(&buf, src, doc); err != nil {
+		return nil, nil, err
 	}
-	return buf.Bytes(), nil
+	return buf.Bytes(), toc, nil
+}
+
+// collectH2TOC walks the parsed AST and returns one TOCEntry per <h2>. h1, h3,
+// and deeper levels are skipped — h1 is the page title, h3+ would clutter the
+// sidebar. Heading text is the concatenation of inline ast.Text segments, so
+// formatting like `code` or *emphasis* contributes plain text only.
+func collectH2TOC(doc ast.Node, src []byte) []TOCEntry {
+	var toc []TOCEntry
+	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		h, ok := n.(*ast.Heading)
+		if !ok || h.Level != 2 {
+			return ast.WalkContinue, nil
+		}
+		// AutoHeadingID assigns an id to every non-empty heading; a missing id
+		// means the heading text was empty (`##` with no content). Skip — there
+		// is nothing to label the entry with anyway.
+		idAttr, ok := h.AttributeString("id")
+		if !ok {
+			return ast.WalkContinue, nil
+		}
+		idBytes, _ := idAttr.([]byte)
+		toc = append(toc, TOCEntry{
+			ID:   string(idBytes),
+			Text: extractInlineText(h, src),
+		})
+		return ast.WalkSkipChildren, nil
+	})
+	return toc
+}
+
+// extractInlineText concatenates the inline text of all ast.Text descendants of
+// n, in document order. Code spans and emphasis nodes contain ast.Text children
+// so this captures their visible text without HTML markup.
+func extractInlineText(n ast.Node, src []byte) string {
+	var b strings.Builder
+	ast.Walk(n, func(c ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		if t, ok := c.(*ast.Text); ok {
+			b.Write(t.Segment.Value(src))
+		}
+		return ast.WalkContinue, nil
+	})
+	return b.String()
 }
 
 // preprocessCallouts rewrites GFM-alert-style blockquotes (lines starting with

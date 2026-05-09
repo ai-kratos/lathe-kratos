@@ -16,8 +16,8 @@ func TestRenderMarkdown(t *testing.T) {
 	}
 
 	html := string(out)
-	if !strings.Contains(html, "<h1>Hello World</h1>") {
-		t.Errorf("RenderMarkdown() missing <h1>, got:\n%s", html)
+	if !strings.Contains(html, `<h1 id="hello-world">Hello World</h1>`) {
+		t.Errorf("RenderMarkdown() missing <h1> with auto-id, got:\n%s", html)
 	}
 	if !strings.Contains(html, "<code>test</code>") {
 		t.Errorf("RenderMarkdown() missing inline <code>, got:\n%s", html)
@@ -149,6 +149,51 @@ func TestRenderPlainBlockquoteUnchanged(t *testing.T) {
 	}
 	if strings.Contains(html, "callout") {
 		t.Errorf("plain blockquote was wrongly classified as a callout, got:\n%s", html)
+	}
+}
+
+func TestRenderMarkdownWithTOC(t *testing.T) {
+	src := []byte("# Title\n\n## First Section\n\nIntro.\n\n### Subsection of first\n\nBody.\n\n## Second Section\n\nMore body.\n\n### Subsection of second\n\nDone.\n")
+
+	out, toc, err := serve.RenderMarkdownWithTOC(src)
+	if err != nil {
+		t.Fatalf("RenderMarkdownWithTOC() error = %v", err)
+	}
+
+	html := string(out)
+	if !strings.Contains(html, `id="first-section"`) {
+		t.Errorf("rendered HTML missing first heading id, got:\n%s", html)
+	}
+	if !strings.Contains(html, `id="second-section"`) {
+		t.Errorf("rendered HTML missing second heading id, got:\n%s", html)
+	}
+
+	if len(toc) != 2 {
+		t.Fatalf("TOC length = %d, want 2 (h2s only); got entries: %#v", len(toc), toc)
+	}
+	if toc[0].ID != "first-section" || toc[0].Text != "First Section" {
+		t.Errorf("toc[0] = %+v, want {ID: first-section, Text: First Section}", toc[0])
+	}
+	if toc[1].ID != "second-section" || toc[1].Text != "Second Section" {
+		t.Errorf("toc[1] = %+v, want {ID: second-section, Text: Second Section}", toc[1])
+	}
+
+	// h3 entries should not be in the TOC.
+	for _, e := range toc {
+		if strings.HasPrefix(e.ID, "subsection-of") {
+			t.Errorf("h3 leaked into TOC: %+v", e)
+		}
+	}
+}
+
+func TestRenderMarkdownWithTOCEmpty(t *testing.T) {
+	src := []byte("just a paragraph, no headings here.\n")
+	_, toc, err := serve.RenderMarkdownWithTOC(src)
+	if err != nil {
+		t.Fatalf("RenderMarkdownWithTOC() error = %v", err)
+	}
+	if len(toc) != 0 {
+		t.Errorf("expected empty TOC, got %#v", toc)
 	}
 }
 
