@@ -625,11 +625,16 @@
       // Per-question buffer of streamed text, plus a RAF token so we re-render
       // at most once per frame regardless of how many chunks arrived. The
       // answer bubble's HTML is replaced wholesale on each render — DOMPurify
-      // is the security boundary, sanitizing every rendered output.
+      // is the security boundary, sanitizing every rendered output. The
+      // `aborted` flag short-circuits any RAF that was queued before the user
+      // pressed Stop / closed the drawer, so we don't write to a detached
+      // node or to a bubble the user has already torn down.
       var ansBuf = '';
       var rafScheduled = false;
+      var aborted = false;
       function renderAnswer(){
         rafScheduled = false;
+        if (aborted) return;
         var was = nearBottom();
         if (answer.classList.contains('thinking')) clearThinking(answer);
         var rendered = false;
@@ -712,6 +717,10 @@
         return pump();
       }).catch(function(err){
         if (err && err.name === 'AbortError') {
+          // Suppress any RAF queued before the abort — without this flag, a
+          // pending render can fire after Stop and briefly redraw the bubble
+          // (or worse, write to a detached node in the no-text case below).
+          aborted = true;
           // Abort before any text arrived — drop the empty thinking bubble so
           // the user isn't left staring at orphaned pulsing dots.
           if (answer.classList.contains('thinking') && answer.parentNode) {
