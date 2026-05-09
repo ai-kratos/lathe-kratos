@@ -173,9 +173,19 @@
     #askBackdrop{position:fixed;inset:0;background:rgba(0,0,0,0.25);z-index:85}
     [data-theme="dark"] #askBackdrop{background:rgba(0,0,0,0.55)}
     #askLog{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.75rem}
-    .ask-bubble{border-radius:8px;padding:.6rem .8rem;max-width:92%;white-space:pre-wrap;word-wrap:break-word;color:var(--text);font-size:.9rem;line-height:1.5}
-    .ask-question{align-self:flex-end;background:var(--active-bg);color:var(--active-text)}
-    .ask-answer{align-self:flex-start;background:var(--hover-bg)}
+    .ask-bubble{border-radius:8px;padding:.6rem .8rem;max-width:92%;word-wrap:break-word;color:var(--text);font-size:.9rem;line-height:1.5}
+    /* Question bubbles and the text fallback for answers both need pre-wrap
+       so SSE-streamed `\n`s render. Markdown-rendered answers don't — the
+       HTML structure carries line breaks and pre-wrap there would surface
+       inter-element whitespace as ugly blank lines. */
+    .ask-question{align-self:flex-end;background:var(--active-bg);color:var(--active-text);white-space:pre-wrap}
+    .ask-answer{align-self:flex-start;background:var(--hover-bg);white-space:pre-wrap}
+    .ask-answer.markdown{white-space:normal}
+    .ask-answer.markdown > :first-child{margin-top:0}
+    .ask-answer.markdown > :last-child{margin-bottom:0}
+    .ask-answer.markdown p{margin-bottom:.5rem}
+    .ask-answer.markdown ul,.ask-answer.markdown ol{margin:.4rem 0 .4rem 1.25rem}
+    .ask-answer.markdown pre{margin:.6rem 0}
     /* Thinking-dots placeholder: shown in the answer bubble between submit
        and the first streamed chunk. Three small circles with a staggered
        pulse. Reduced-motion users get static dots (essentially a "…"). */
@@ -452,7 +462,47 @@
     var part = drawer.getAttribute('data-part') || '';
     var controller = null;
 
+    // Lazy-load marked + DOMPurify the first time the drawer is opened. Both
+    // bundles are vendored under /_static/. State machine:
+    //   false       — not yet attempted
+    //   'pending'   — script tags injected, waiting on load/error
+    //   true        — both bundles ready, marked configured
+    //   'failed'    — at least one bundle failed; render path falls back to
+    //                 plain text and the chat still works
+    var mdLoaded = false;
+    function ensureMarkdownLibs(){
+      if (mdLoaded) return;
+      mdLoaded = 'pending';
+      var pending = 2;
+      var failed = false;
+      function done(success){
+        if (!success) failed = true;
+        if (--pending > 0) return;
+        if (failed || !window.marked || !window.DOMPurify) {
+          mdLoaded = 'failed';
+          return;
+        }
+        try {
+          // GFM features (tables, strikethrough) + soft line breaks rendered
+          // as <br> so chat-style replies look right.
+          window.marked.setOptions({ gfm: true, breaks: true });
+        } catch (e) {}
+        mdLoaded = true;
+      }
+      function load(src){
+        var s = document.createElement('script');
+        s.src = src;
+        s.async = true;
+        s.onload = function(){ done(true); };
+        s.onerror = function(){ done(false); };
+        document.body.appendChild(s);
+      }
+      load('/_static/marked.min.js');
+      load('/_static/dompurify.min.js');
+    }
+
     function openDrawer(){
+      ensureMarkdownLibs();
       drawer.classList.add('open');
       drawer.setAttribute('aria-hidden', 'false');
       backdrop.hidden = false;
@@ -572,6 +622,41 @@
       setSending(true);
       pinBottom();
 
+      // Per-question buffer of streamed text, plus a RAF token so we re-render
+      // at most once per frame regardless of how many chunks arrived. The
+      // answer bubble's HTML is replaced wholesale on each render — DOMPurify
+      // is the security boundary, sanitizing every rendered output.
+      var ansBuf = '';
+      var rafScheduled = false;
+      function renderAnswer(){
+        rafScheduled = false;
+        var was = nearBottom();
+        if (answer.classList.contains('thinking')) clearThinking(answer);
+        var rendered = false;
+        if (mdLoaded === true && window.marked && window.DOMPurify) {
+          try {
+            answer.innerHTML = window.DOMPurify.sanitize(window.marked.parse(ansBuf));
+            rendered = true;
+          } catch (e) {
+            // Fall through to text fallback.
+          }
+        }
+        if (!rendered) {
+          // Pending or failed lib load (or marked threw) — show plain text. If
+          // libs finish loading mid-stream, the next chunk re-renders as HTML.
+          answer.textContent = ansBuf;
+        }
+        answer.classList.toggle('markdown', rendered);
+        if (was) pinBottom();
+      }
+      function appendAnswer(text){
+        ansBuf += text;
+        if (!rafScheduled) {
+          rafScheduled = true;
+          requestAnimationFrame(renderAnswer);
+        }
+      }
+
       controller = new AbortController();
       var url = '/-/ask/' + encodeURIComponent(slug) + '/' + encodeURIComponent(part);
 
@@ -588,13 +673,6 @@
         var decoder = new TextDecoder();
         var buffer = '';
         var done = false;
-
-        function appendAnswer(text){
-          var was = nearBottom();
-          if (answer.classList.contains('thinking')) clearThinking(answer);
-          answer.textContent = answer.textContent + text;
-          if (was) pinBottom();
-        }
 
         function processBuffer(){
           var idx;
@@ -641,10 +719,7 @@
           }
           return;
         }
-        var was = nearBottom();
-        if (answer.classList.contains('thinking')) clearThinking(answer);
-        answer.textContent = answer.textContent + '\n\n[error: ' + (err && err.message ? err.message : 'request failed') + ']';
-        if (was) pinBottom();
+        appendAnswer('\n\n[error: ' + (err && err.message ? err.message : 'request failed') + ']');
       }).then(function(){
         setSending(false);
         controller = null;
