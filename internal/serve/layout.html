@@ -31,7 +31,7 @@
       --bg:#f9fafb;--surface:#fff;--border:#e5e7eb;--text:#111827;--text-muted:#374151;--text-subtle:#4b5563;--text-faint:#6b7280;
       --hover-bg:#f3f4f6;--active-bg:#eff6ff;--active-text:#1d4ed8;--code-bg:#f3f4f6;--code-text:#1f2937;--blockquote-border:#d1d5db;
       --badge-verified-bg:#d1fae5;--badge-verified-text:#065f46;--badge-verifying-bg:#fef3c7;--badge-verifying-text:#92400e;
-      --badge-failed-bg:#fee2e2;--badge-failed-text:#991b1b;
+      --badge-failed-bg:#fee2e2;--badge-failed-text:#991b1b;--badge-extending-bg:#e0f2fe;--badge-extending-text:#0369a1;
       --callout-note-bg:#eff6ff;--callout-note-border:#3b82f6;--callout-note-label:#1d4ed8;
       --callout-tip-bg:#ecfdf5;--callout-tip-border:#10b981;--callout-tip-label:#047857;
       --callout-warn-bg:#fffbeb;--callout-warn-border:#f59e0b;--callout-warn-label:#b45309;
@@ -44,7 +44,7 @@
       --bg:#0f1115;--surface:#181b22;--border:#2a2f3a;--text:#e5e7eb;--text-muted:#cbd5e1;--text-subtle:#9ca3af;--text-faint:#9ca3af;
       --hover-bg:#222632;--active-bg:#1e2a44;--active-text:#93c5fd;--code-bg:#222632;--code-text:#e5e7eb;--blockquote-border:#374151;
       --badge-verified-bg:#064e3b;--badge-verified-text:#a7f3d0;--badge-verifying-bg:#78350f;--badge-verifying-text:#fde68a;
-      --badge-failed-bg:#7f1d1d;--badge-failed-text:#fecaca;
+      --badge-failed-bg:#7f1d1d;--badge-failed-text:#fecaca;--badge-extending-bg:#0c2a40;--badge-extending-text:#7dd3fc;
       --callout-note-bg:#172033;--callout-note-border:#3b82f6;--callout-note-label:#93c5fd;
       --callout-tip-bg:#0f2820;--callout-tip-border:#10b981;--callout-tip-label:#6ee7b7;
       --callout-warn-bg:#2a1f0a;--callout-warn-border:#f59e0b;--callout-warn-label:#fcd34d;
@@ -69,6 +69,7 @@
     .badge.verified{background:var(--badge-verified-bg);color:var(--badge-verified-text)}
     .badge.verifying{background:var(--badge-verifying-bg);color:var(--badge-verifying-text)}
     .badge.failed{background:var(--badge-failed-bg);color:var(--badge-failed-text)}
+    .badge.extending{background:var(--badge-extending-bg);color:var(--badge-extending-text)}
     nav ul{list-style:none}
     nav li{margin:.2rem 0}
     nav a{display:block;font-size:.85rem;color:var(--text-subtle);text-decoration:none;padding:.35rem .6rem;border-radius:5px}
@@ -240,7 +241,7 @@
 <div id="progressBar" aria-hidden="true"><div></div></div>
 <header id="topBar">
   <button type="button" id="hamburger" aria-label="Toggle navigation" aria-controls="sidebar" aria-expanded="false">≡</button>
-  <span class="crumb"><strong>{{.Tutorial.Title}}</strong>{{if and .Tutorial.Series .CurrentPartNumber}}<span class="sep">›</span>Part {{.CurrentPartNumber}}{{end}}</span>
+  <span class="crumb"><strong>{{.Tutorial.Title}}</strong>{{if and .Tutorial.IsSeries .CurrentPartNumber}}<span class="sep">›</span>Part {{.CurrentPartNumber}}{{end}}</span>
 </header>
 <div class="layout">
   <nav id="sidebar">
@@ -249,6 +250,7 @@
     {{if eq .Tutorial.Status "verified"}}<span class="badge verified">✅ Verified</span>
     {{else if eq .Tutorial.Status "verifying"}}<span class="badge verifying">⏳ Verifying…</span>
     {{else if eq .Tutorial.Status "failed"}}<span class="badge failed">❌ Failed</span>
+    {{else if eq .Tutorial.Status "extending"}}<span class="badge extending">⏳ Extending…</span>
     {{end}}
     {{if .TOC}}
     <h3 class="toc-label">On this page</h3>
@@ -263,7 +265,7 @@
   </nav>
   <main>
     {{.Content}}
-    {{if and .Tutorial.Series (gt (len .Tutorial.Parts) 1)}}
+    {{if .Tutorial.IsSeries}}
     <section class="series-toc" aria-label="In this series">
       <h2>In this series</h2>
       <ol>
@@ -279,7 +281,7 @@
       </ol>
     </section>
     {{end}}
-    {{if .Tutorial.Series}}
+    {{if .Tutorial.IsSeries}}
     <nav class="part-nav" aria-label="Part navigation">
       {{if .PrevPart}}
       <a href="/{{.Tutorial.Slug}}/{{.PrevPart}}" class="prev">

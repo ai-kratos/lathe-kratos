@@ -24,7 +24,6 @@ func makeTestTutorial(t *testing.T, dir, slug string, series bool) string {
 		Slug:    slug,
 		Title:   "Test Tutorial",
 		Status:  store.StatusVerified,
-		Series:  series,
 		Created: time.Now(),
 	}
 	if series {
@@ -107,7 +106,6 @@ func makeSeriesTutorialWithParts(t *testing.T, dir, slug string, numParts int) {
 		Slug:    slug,
 		Title:   "Test Series",
 		Status:  store.StatusVerified,
-		Series:  true,
 		Parts:   parts,
 		Created: time.Now(),
 	}
@@ -194,7 +192,6 @@ func TestSeriesSidebarAndBottomList(t *testing.T) {
 		Slug:    "test-series",
 		Title:   "Test Series",
 		Status:  store.StatusVerified,
-		Series:  true,
 		Parts:   []string{"part-01.md", "part-02.md"},
 		Created: time.Now(),
 	}
@@ -461,5 +458,77 @@ func TestPathTraversalBlocked(t *testing.T) {
 
 	if w.Code == http.StatusOK {
 		t.Error("path traversal should not succeed")
+	}
+}
+
+func TestExtendingBadgeRendersOnList(t *testing.T) {
+	dir := t.TempDir()
+	tutDir := filepath.Join(dir, "test-extending")
+	if err := os.MkdirAll(tutDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	tut := &store.Tutorial{
+		Slug:        "test-extending",
+		Title:       "Test Extending",
+		Status:      store.StatusExtending,
+		Parts:       []string{"part-01.md", "part-02.md"},
+		PendingPart: "part-03.md",
+		Created:     time.Now(),
+	}
+	for _, p := range tut.Parts {
+		if err := os.WriteFile(filepath.Join(tutDir, p), []byte("# "+p), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.WriteMetadata(tutDir, tut); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := serve.NewServer(dir)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET / = %d, want %d", w.Code, http.StatusOK)
+	}
+	if !strings.Contains(w.Body.String(), `badge extending`) {
+		t.Error("list page missing extending badge for tutorial with status=extending")
+	}
+}
+
+func TestExtendingBadgeRendersOnPart(t *testing.T) {
+	dir := t.TempDir()
+	tutDir := filepath.Join(dir, "test-extending")
+	if err := os.MkdirAll(tutDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	tut := &store.Tutorial{
+		Slug:        "test-extending",
+		Title:       "Test Extending",
+		Status:      store.StatusExtending,
+		Parts:       []string{"part-01.md", "part-02.md"},
+		PendingPart: "part-03.md",
+		Created:     time.Now(),
+	}
+	for _, p := range tut.Parts {
+		if err := os.WriteFile(filepath.Join(tutDir, p), []byte("# "+p), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.WriteMetadata(tutDir, tut); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := serve.NewServer(dir)
+	req := httptest.NewRequest(http.MethodGet, "/test-extending/part-02.md", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /test-extending/part-02.md = %d, want %d", w.Code, http.StatusOK)
+	}
+	if !strings.Contains(w.Body.String(), `badge extending`) {
+		t.Error("part page missing extending badge for tutorial with status=extending")
 	}
 }

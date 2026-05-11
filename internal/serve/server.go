@@ -126,7 +126,7 @@ func (s *Server) handleTutorial(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if tut.Series && len(tut.Parts) > 0 {
+	if tut.IsSeries() && len(tut.Parts) > 0 {
 		http.Redirect(w, r, fmt.Sprintf("/%s/%s", slug, tut.Parts[0]), http.StatusFound)
 		return
 	}
@@ -193,7 +193,7 @@ func (s *Server) renderPart(w http.ResponseWriter, tut *store.Tutorial, tutDir, 
 	var prevPart, nextPart, prevTitle, nextTitle string
 	var prevNumber, nextNumber, currentNumber int
 	var seriesTOC []SeriesEntry
-	if tut.Series {
+	if tut.IsSeries() {
 		seriesTOC = make([]SeriesEntry, 0, len(tut.Parts))
 		for i, p := range tut.Parts {
 			seriesTOC = append(seriesTOC, SeriesEntry{
