@@ -26,7 +26,7 @@ func Store(srcPath string, withVerify bool) (*Tutorial, error) {
 		return nil, fmt.Errorf("copy tutorial: %w", err)
 	}
 
-	parts, series := detectParts(destDir)
+	parts := detectParts(destDir)
 	status := StatusVerified
 	if withVerify {
 		status = StatusVerifying
@@ -38,7 +38,6 @@ func Store(srcPath string, withVerify bool) (*Tutorial, error) {
 		Topic:   slug,
 		Created: time.Now().UTC(),
 		Status:  status,
-		Series:  series,
 		Parts:   parts,
 	}
 
@@ -92,10 +91,10 @@ func copyFile(src, dst string) error {
 	return out.Close()
 }
 
-func detectParts(dir string) ([]string, bool) {
+func detectParts(dir string) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, false
+		return nil
 	}
 	var parts []string
 	for _, e := range entries {
@@ -104,7 +103,7 @@ func detectParts(dir string) ([]string, bool) {
 		}
 	}
 	sort.Strings(parts)
-	return parts, len(parts) > 0
+	return parts
 }
 
 func Delete(slug string) error {

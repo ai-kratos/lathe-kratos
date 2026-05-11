@@ -20,8 +20,8 @@ func TestStoreSingleTutorial(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Store() error = %v", err)
 	}
-	if tut.Series {
-		t.Error("Store() Series = true, want false for single tutorial")
+	if tut.IsSeries() {
+		t.Error("Store() IsSeries() = true, want false for single tutorial")
 	}
 	if tut.Status != store.StatusVerified {
 		t.Errorf("Store() Status = %q, want %q", tut.Status, store.StatusVerified)
@@ -41,8 +41,8 @@ func TestStoreSeriesTutorial(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Store() error = %v", err)
 	}
-	if !tut.Series {
-		t.Error("Store() Series = false, want true for series")
+	if !tut.IsSeries() {
+		t.Error("Store() IsSeries() = false, want true for series")
 	}
 	if len(tut.Parts) != 3 {
 		t.Errorf("Store() Parts = %v, want 3 parts", tut.Parts)
