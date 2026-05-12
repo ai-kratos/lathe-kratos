@@ -539,6 +539,50 @@ func TestExtendFormOnSinglePart(t *testing.T) {
 	}
 }
 
+func TestExtendingPanelRendersAndAutoRefreshes(t *testing.T) {
+	dir := t.TempDir()
+	tutDir := filepath.Join(dir, "test-extending")
+	if err := os.MkdirAll(tutDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	tut := &store.Tutorial{
+		Slug:        "test-extending",
+		Title:       "Test Extending",
+		Status:      store.StatusExtending,
+		Parts:       []string{"part-01.md", "part-02.md", "part-03.md"},
+		PendingPart: "part-04.md",
+		Created:     time.Now(),
+	}
+	for _, p := range tut.Parts {
+		if err := os.WriteFile(filepath.Join(tutDir, p), []byte("# "+p), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.WriteMetadata(tutDir, tut); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := serve.NewServer(dir)
+	req := httptest.NewRequest(http.MethodGet, "/test-extending/part-03.md", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /test-extending/part-03.md = %d, want %d", w.Code, http.StatusOK)
+	}
+	body := w.Body.String()
+
+	if !strings.Contains(body, "Generating part 4") {
+		t.Error("extending panel should show 'Generating part 4'")
+	}
+	if !strings.Contains(body, `http-equiv="refresh"`) {
+		t.Error("extending page should have meta refresh tag")
+	}
+	if strings.Contains(body, `id="extendForm"`) {
+		t.Error("extend form should NOT appear while status is extending")
+	}
+}
+
 func TestExtendingBadgeRendersOnList(t *testing.T) {
 	dir := t.TempDir()
 	tutDir := filepath.Join(dir, "test-extending")

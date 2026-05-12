@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/devenjarvis/lathe/internal/store"
@@ -239,10 +240,23 @@ func (s *Server) renderPart(w http.ResponseWriter, tut *store.Tutorial, tutDir, 
 		"SeriesTOC":         seriesTOC,
 		"IsLastPart":        isLast,
 		"NextPartNumber":    len(tut.Parts) + 1,
+		"PendingPartNumber": pendingPartNumber(tut.PendingPart, len(tut.Parts)+1),
 	}); err != nil {
 		http.Error(w, "template error", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	buf.WriteTo(w)
+}
+
+func pendingPartNumber(pendingPart string, fallback int) int {
+	if pendingPart == "" {
+		return fallback
+	}
+	s := strings.TrimSuffix(strings.TrimPrefix(pendingPart, "part-"), ".md")
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return fallback
+	}
+	return n
 }
