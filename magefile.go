@@ -61,9 +61,34 @@ func Test() error {
 	return run("go", "test", "-race", "./...")
 }
 
-// Build compiles the self-contained binary (embedded assets included).
+// Build compiles the self-contained binary (embedded assets included), stamping
+// in a git-derived version so a locally built `./lathe --version` reports a real
+// version instead of "dev". The fully-qualified ldflags path must match
+// internal/buildinfo and .goreleaser.yaml.
 func Build() error {
-	return run("go", "build", "-o", "lathe")
+	const pkg = "github.com/devenjarvis/lathe/internal/buildinfo"
+	version := gitDescribe()
+	ldflags := fmt.Sprintf("-X %s.Version=%s -X %s.Commit=%s", pkg, version, pkg, gitCommit())
+	return run("go", "build", "-ldflags", ldflags, "-o", "lathe")
+}
+
+// gitDescribe returns `git describe --tags --always --dirty`, or "dev" if git
+// is unavailable (so Build never fails just because there are no tags yet).
+func gitDescribe() string {
+	out, err := exec.Command("git", "describe", "--tags", "--always", "--dirty").Output()
+	if v := strings.TrimSpace(string(out)); err == nil && v != "" {
+		return v
+	}
+	return "dev"
+}
+
+// gitCommit returns the short HEAD SHA, or "" if git is unavailable.
+func gitCommit() string {
+	out, err := exec.Command("git", "rev-parse", "--short", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // Check runs the full gate: fmt check, vet, lint, test, build. This is what CI
