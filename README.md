@@ -27,6 +27,7 @@ Then open lathe from any terminal:
 
 ```bash
 lathe serve              # starts the web server, opens the browser
+lathe serve --no-open    # starts without opening a browser, for launchd/background use
 ```
 
 <img src="docs/img/tutorial-selection-light-mode.png" alt="Browsing tutorials in lathe (light mode)" width="800">
