@@ -278,25 +278,29 @@ func partIndex(tut *store.Tutorial, part string) int {
 
 // sameOrigin reports whether a state-changing request originated from a page
 // served by this server. It rejects a *present* Origin or Referer that points
-// elsewhere — the defense against CSRF, where another site (or a LAN device)
-// POSTs to our predictable localhost port. A request with neither header (e.g.
-// curl, or a same-origin form POST that omits Origin) is allowed.
+// elsewhere — the defense against CSRF, where another site POSTs to our
+// predictable port. A request with neither header (e.g. curl, or a same-origin
+// form POST that omits Origin) is allowed.
 func sameOrigin(r *http.Request) bool {
 	if origin := r.Header.Get("Origin"); origin != "" {
-		return isLocalOrigin(origin)
+		return isAllowedOrigin(origin, r.Host)
 	}
 	if ref := r.Header.Get("Referer"); ref != "" {
-		return isLocalOrigin(ref)
+		return isAllowedOrigin(ref, r.Host)
 	}
 	return true
 }
 
-// isLocalOrigin reports whether a URL's host is loopback. We match on host
-// rather than an exact port because the listen port is configurable (--port).
-func isLocalOrigin(raw string) bool {
+// isAllowedOrigin reports whether a URL's host is the request host or loopback.
+// The request-host match lets the all-interface server accept legitimate LAN
+// requests, while the loopback allowance preserves the local browser flow.
+func isAllowedOrigin(raw, requestHost string) bool {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return false
+	}
+	if requestHost != "" && strings.EqualFold(u.Host, requestHost) {
+		return true
 	}
 	host := u.Hostname()
 	return host == "localhost" || host == "127.0.0.1" || host == "::1"

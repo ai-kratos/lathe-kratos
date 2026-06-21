@@ -130,20 +130,56 @@ func TestDeleteRejectsForeignReferer(t *testing.T) {
 }
 
 func TestDeleteAllowsSameOrigin(t *testing.T) {
-	dir := t.TempDir()
-	tutDir := makeTestTutorial(t, dir, "victim", false)
-
-	srv := serve.NewServer(dir)
-	req := httptest.NewRequest(http.MethodPost, "/-/delete/victim", nil)
-	req.Header.Set("Origin", "http://localhost:4242")
-	w := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(w, req)
-
-	if w.Code != http.StatusSeeOther {
-		t.Errorf("same-origin delete = %d, want %d", w.Code, http.StatusSeeOther)
+	tests := []struct {
+		name   string
+		target string
+		origin string
+	}{
+		{
+			name:   "localhost",
+			target: "/-/delete/victim",
+			origin: "http://localhost:4242",
+		},
+		{
+			name:   "ipv4 loopback",
+			target: "/-/delete/victim",
+			origin: "http://127.0.0.1:4242",
+		},
+		{
+			name:   "ipv6 loopback",
+			target: "/-/delete/victim",
+			origin: "http://[::1]:4242",
+		},
+		{
+			name:   "lan host",
+			target: "http://192.168.1.10:4242/-/delete/victim",
+			origin: "http://192.168.1.10:4242",
+		},
+		{
+			name:   "tailnet magicdns host",
+			target: "http://workstation.tailnet.ts.net:4242/-/delete/victim",
+			origin: "http://workstation.tailnet.ts.net:4242",
+		},
 	}
-	if _, err := os.Stat(tutDir); !os.IsNotExist(err) {
-		t.Errorf("same-origin delete did not remove the tutorial dir: err=%v", err)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tutDir := makeTestTutorial(t, dir, "victim", false)
+
+			srv := serve.NewServer(dir)
+			req := httptest.NewRequest(http.MethodPost, tt.target, nil)
+			req.Header.Set("Origin", tt.origin)
+			w := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(w, req)
+
+			if w.Code != http.StatusSeeOther {
+				t.Errorf("same-origin delete = %d, want %d", w.Code, http.StatusSeeOther)
+			}
+			if _, err := os.Stat(tutDir); !os.IsNotExist(err) {
+				t.Errorf("same-origin delete did not remove the tutorial dir: err=%v", err)
+			}
+		})
 	}
 }
 
