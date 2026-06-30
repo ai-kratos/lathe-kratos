@@ -277,6 +277,18 @@ func TestWorkAnswerRejectsCrossOrigin(t *testing.T) {
 	}
 }
 
+func TestWorkNextRejectsCrossOrigin(t *testing.T) {
+	dir := t.TempDir()
+	srv := serve.NewServer(dir)
+	req := httptest.NewRequest(http.MethodGet, "/-/work", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("cross-origin work claim = %d, want 403", w.Code)
+	}
+}
+
 func TestWorkDoneRejectsCrossOrigin(t *testing.T) {
 	dir := t.TempDir()
 	srv := serve.NewServer(dir)
