@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"net/http"
 	"testing"
 )
@@ -10,9 +11,9 @@ func TestRunServeOpensBrowserByDefault(t *testing.T) {
 
 	var opened []string
 	var listenedAddr string
-	err := runServe(4242, false, func(url string) {
+	err := runServe(context.Background(), 4242, false, func(url string) {
 		opened = append(opened, url)
-	}, func(addr string, handler http.Handler) error {
+	}, func(_ context.Context, addr string, handler http.Handler) error {
 		listenedAddr = addr
 		if handler == nil {
 			t.Fatal("listen handler = nil")
@@ -36,9 +37,9 @@ func TestRunServeNoOpenSkipsBrowser(t *testing.T) {
 
 	var opened []string
 	var listenedAddr string
-	err := runServe(4243, true, func(url string) {
+	err := runServe(context.Background(), 4243, true, func(url string) {
 		opened = append(opened, url)
-	}, func(addr string, handler http.Handler) error {
+	}, func(_ context.Context, addr string, handler http.Handler) error {
 		listenedAddr = addr
 		if handler == nil {
 			t.Fatal("listen handler = nil")

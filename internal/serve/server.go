@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devenjarvis/lathe/internal/queue"
 	"github.com/devenjarvis/lathe/internal/store"
 	"github.com/devenjarvis/lathe/internal/voice"
 )
@@ -42,6 +43,11 @@ type Server struct {
 	listTmpl     *template.Template
 	highlightCSS template.CSS
 	designCSS    template.CSS
+	// queue bridges the browser and an interactive coding-agent session: the
+	// ask/verify/extend buttons enqueue a job when a worker is connected (else
+	// they fall back to the copy-paste handoff), and a /lathe-work loop long-polls
+	// /-/work to claim and run it. The binary still never drives a model.
+	queue *queue.Queue
 }
 
 func NewServer(tutorialsDir string) *Server {
@@ -63,6 +69,7 @@ func NewServer(tutorialsDir string) *Server {
 		listTmpl:     listTmpl,
 		highlightCSS: css,
 		designCSS:    template.CSS(stylesCSS),
+		queue:        queue.New(),
 	}
 }
 
@@ -77,6 +84,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /-/progress/{slug}/{part}", s.handleProgress)
 	mux.HandleFunc("POST /-/extend/{slug}", s.handleExtend)
 	mux.HandleFunc("POST /-/verify/{slug}", s.handleVerify)
+	mux.HandleFunc("GET /-/status/{slug}/{part}", s.handleStatus)
+	// Worker bridge (all loopback). The worker long-polls /-/work to claim a job,
+	// reports an ask answer via .../answer or a verify/extend completion via
+	// .../done, and the browser polls GET /-/work/{id} for an ask answer.
+	mux.HandleFunc("GET /-/work", s.handleWorkNext)
+	mux.HandleFunc("GET /-/work/{id}", s.handleWorkGet)
+	mux.HandleFunc("POST /-/work/{id}/answer", s.handleWorkAnswer)
+	mux.HandleFunc("POST /-/work/{id}/done", s.handleWorkDone)
+	mux.HandleFunc("GET /-/worker", s.handleWorker)
 	return mux
 }
 
@@ -276,6 +292,55 @@ func partIndex(tut *store.Tutorial, part string) int {
 	return -1
 }
 
+// isLastPart reports whether part is the final declared part of the series (or
+// the sole part). A legacy index.md tutorial (no parts) counts as last.
+func isLastPart(tut *store.Tutorial, part string) bool {
+	if len(tut.Parts) == 0 {
+		return true
+	}
+	return partIndex(tut, part) == len(tut.Parts)-1
+}
+
+// partAfter returns the part immediately following part in the series as a
+// SeriesEntry (Slug/Title/Number), or ok=false when part is unknown or already
+// last. handleStatus uses it to point the "Part N is ready" link at the part an
+// extend just appended.
+func partAfter(tut *store.Tutorial, part string) (SeriesEntry, bool) {
+	idx := partIndex(tut, part)
+	if idx < 0 || idx+1 >= len(tut.Parts) {
+		return SeriesEntry{}, false
+	}
+	next := tut.Parts[idx+1]
+	return SeriesEntry{
+		Slug:   next,
+		Title:  store.SlugToTitle(strings.TrimSuffix(next, ".md")),
+		Number: idx + 2,
+	}, true
+}
+
+// verifyMeta surfaces the verifier's recorded result and the friendly "Verified
+// <date>" string for a tutorial's current status. On failure the result carries
+// the part/step/error detail; on verified/skipped it carries the CheckedAt
+// timestamp formatted as a date. Best-effort: a missing or malformed
+// verify-result.json (or an unparseable timestamp) yields a nil result and/or an
+// empty date, and the caller simply renders no panel and no date.
+func verifyMeta(tut *store.Tutorial, tutDir string) (*store.VerifyResult, string) {
+	var verifyResult *store.VerifyResult
+	switch tut.Status {
+	case store.StatusFailed, store.StatusVerified, store.StatusSkipped:
+		if vr, err := store.ReadVerifyResult(tutDir); err == nil {
+			verifyResult = vr
+		}
+	}
+	var verifiedDate string
+	if verifyResult != nil && (tut.Status == store.StatusVerified || tut.Status == store.StatusSkipped) {
+		if ts, err := time.Parse(time.RFC3339, verifyResult.CheckedAt); err == nil {
+			verifiedDate = ts.Format("Jan 2, 2006")
+		}
+	}
+	return verifyResult, verifiedDate
+}
+
 // sameOrigin reports whether a state-changing request originated from a page
 // served by this server. It rejects a *present* Origin or Referer that points
 // elsewhere — the defense against CSRF, where another site POSTs to our
@@ -381,27 +446,10 @@ func (s *Server) renderPart(w http.ResponseWriter, tut *store.Tutorial, tutDir, 
 		}
 	}
 
-	// Surface the verifier's recorded result. On failure it explains what broke
-	// (part/step/error); on verified/skipped it carries the CheckedAt timestamp
-	// we show as "Verified <date>". Best-effort: a missing or malformed
+	// Surface the verifier's recorded result (failure detail) and the friendly
+	// "Verified <date>" provenance string. Best-effort: a missing or malformed
 	// verify-result.json simply renders no panel and no date.
-	var verifyResult *store.VerifyResult
-	switch tut.Status {
-	case store.StatusFailed, store.StatusVerified, store.StatusSkipped:
-		if vr, err := store.ReadVerifyResult(tutDir); err == nil {
-			verifyResult = vr
-		}
-	}
-
-	// On verified/skipped, format the verifier's timestamp as a friendly date for
-	// the "Verified <date>" provenance line. Best-effort: an unparseable or empty
-	// CheckedAt simply yields no date.
-	var verifiedDate string
-	if verifyResult != nil && (tut.Status == store.StatusVerified || tut.Status == store.StatusSkipped) {
-		if ts, err := time.Parse(time.RFC3339, verifyResult.CheckedAt); err == nil {
-			verifiedDate = ts.Format("Jan 2, 2006")
-		}
-	}
+	verifyResult, verifiedDate := verifyMeta(tut, tutDir)
 
 	// Count inline [!UNVERIFIED] callouts so the page can flag, near the badge,
 	// how many claims the author couldn't ground in a source. Derived at render
@@ -426,6 +474,16 @@ func (s *Server) renderPart(w http.ResponseWriter, tut *store.Tutorial, tutDir, 
 
 	currentProgress := currentPartProgress(tut, part)
 
+	// Per-part exercise checkbox state lives in its own sidecar (exercises.json),
+	// deliberately outside the monotonic progress record. Best-effort like
+	// progress: a read error just yields no restored checks. Only the current
+	// part's indices are surfaced — they match the data-exercise-index values the
+	// renderer assigned for this part.
+	var checkedExercises []int
+	if state, err := store.ReadExercises(tutDir); err == nil {
+		checkedExercises = state[part]
+	}
+
 	// Compute the 1-based part number of the globally saved progress so the
 	// client can perform a cheap cross-part monotonic check and avoid
 	// unnecessary API calls when re-visiting an earlier part.
@@ -447,6 +505,7 @@ func (s *Server) renderPart(w http.ResponseWriter, tut *store.Tutorial, tutDir, 
 		"VoiceSpec":         voiceSpec,
 		"CurrentPart":       part,
 		"CurrentProgress":   currentProgress,
+		"CheckedExercises":  checkedExercises,
 		"CurrentPartNumber": currentNumber,
 		"SavedPartNumber":   savedPartNumber,
 		"TotalParts":        len(tut.Parts),
@@ -464,6 +523,10 @@ func (s *Server) renderPart(w http.ResponseWriter, tut *store.Tutorial, tutDir, 
 		"IsLastPart":        isLast,
 		"NextPartNumber":    len(tut.Parts) + 1,
 		"PendingPartNumber": pendingPartNumber(tut.PendingPart, len(tut.Parts)+1),
+		// JustAddedPart is only ever set by handleStatus, which renders the shared
+		// extendSection partial after an extend completes. On the full page it is
+		// nil, so the partial's "ready link" branch stays inert.
+		"JustAddedPart": nil,
 	}); err != nil {
 		http.Error(w, "template error", http.StatusInternalServerError)
 		return
@@ -489,4 +552,89 @@ func currentPartProgress(tut *store.Tutorial, part string) *store.Progress {
 		return nil
 	}
 	return tut.Progress
+}
+
+// handleStatus is the polling endpoint behind the in-place status updates. The
+// reading page polls it every 5s while a tutorial is verifying or extending —
+// an out-of-process skill owns those transitions, writing metadata.json, and
+// ReadMetadata picks the change up on the next request. It re-renders just the
+// status-dependent regions (the header badge, the verify section, the extend
+// section) from the same partials the full page uses, so the client can swap
+// them into the DOM without a full reload.
+//
+// `done` reports whether the tutorial has left its transient state — the signal
+// for the client to apply the swap and stop polling. The optional ?from= query
+// names the state the client is polling out of: when an extend finishes
+// (from=extending) and a new part now follows the requested part, the extend
+// section renders a "Part N is ready" link to it instead of the form.
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	part := r.PathValue("part")
+	tutDir, ok := s.safeTutorialPath(slug)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	tut, err := store.ReadMetadata(tutDir)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !isKnownPart(tut, part) {
+		http.NotFound(w, r)
+		return
+	}
+
+	verifyResult, verifiedDate := verifyMeta(tut, tutDir)
+	last := isLastPart(tut, part)
+	done := tut.Status != store.StatusVerifying && tut.Status != store.StatusExtending
+
+	// When an extend completes, the part it appended now follows the page's
+	// (formerly last) part — surface it as a "ready" link. Gated on from=extending
+	// so a verify poll on a middle part can never show a spurious link.
+	var justAdded any
+	if done && r.URL.Query().Get("from") == "extending" {
+		if next, ok := partAfter(tut, part); ok {
+			justAdded = next
+		}
+	}
+
+	data := map[string]any{
+		"Tutorial":          tut,
+		"VerifyResult":      verifyResult,
+		"VerifiedDate":      verifiedDate,
+		"IsLastPart":        last,
+		"NextPartNumber":    len(tut.Parts) + 1,
+		"PendingPartNumber": pendingPartNumber(tut.PendingPart, len(tut.Parts)+1),
+		"JustAddedPart":     justAdded,
+	}
+
+	// The extend region only has content on the last part, or when an extend just
+	// added the next part (the ready link) — mirror the full page's wrapper guard
+	// so a verify completion on a middle part returns an empty extend region.
+	var extend string
+	if last || justAdded != nil {
+		extend = s.renderPartial("extendSection", data)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status": tut.Status,
+		"done":   done,
+		"badge":  s.renderPartial("statusHeader", data),
+		"verify": s.renderPartial("verifySection", data),
+		"extend": extend,
+	})
+}
+
+// renderPartial executes a named layout partial against data and returns the
+// rendered HTML. A template error yields "" — the polling client treats an empty
+// region as "nothing to swap", so a transient render error degrades gracefully
+// rather than corrupting the page.
+func (s *Server) renderPartial(name string, data any) string {
+	var buf bytes.Buffer
+	if err := s.layoutTmpl.ExecuteTemplate(&buf, name, data); err != nil {
+		return ""
+	}
+	return buf.String()
 }

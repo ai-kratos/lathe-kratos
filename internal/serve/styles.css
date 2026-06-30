@@ -374,7 +374,10 @@ pre[data-overflow="true"]{box-shadow:inset -18px 0 14px -12px rgba(40,30,20,.20)
 .part-menu .title{min-width:0}
 
 /* Series TOC at bottom of part */
-.series-toc{margin-top:3rem;padding-top:1.6rem;border-top:1px solid var(--border)}
+/* The bordered sections that stack below the article (series TOC, part nav,
+   verify, extend) all share one top rhythm — margin-top:2rem + padding-top:1.6rem
+   — so their divider rules are evenly distributed rather than bunched. */
+.series-toc{margin-top:2rem;padding-top:1.6rem;border-top:1px solid var(--border)}
 .series-toc > h2{font-family:var(--font-display);font-size:1.05rem;font-weight:600;margin:0 0 .8rem;color:var(--text);line-height:1.3;letter-spacing:-.01em}
 .series-toc ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.45rem}
 .series-toc li{margin:0}
@@ -386,7 +389,7 @@ pre[data-overflow="true"]{box-shadow:inset -18px 0 14px -12px rgba(40,30,20,.20)
 
 /* Inline prev/next part navigation — compact buttons pinned to each edge
    (prev left, next right), sized to content rather than stretched full-width. */
-.part-nav{display:flex;justify-content:space-between;gap:.75rem;margin-top:1.6rem;padding-top:1.6rem;border-top:1px solid var(--border)}
+.part-nav{display:flex;justify-content:space-between;gap:.75rem;margin-top:2rem;padding-top:1.6rem;border-top:1px solid var(--border)}
 .part-nav a{min-width:0;max-width:min(46%,20rem);text-decoration:none;color:var(--text-subtle);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:.5rem .8rem;display:flex;flex-direction:column;gap:.1rem;transition:color var(--transition),border-color var(--transition),background var(--transition)}
 .part-nav a:hover{color:var(--accent);border-color:var(--border-strong);background:var(--surface-sunken)}
 .part-nav .label{font-family:var(--font-display);font-size:.72rem;font-weight:700;letter-spacing:.03em;color:var(--text-faint)}
@@ -408,7 +411,16 @@ pre[data-overflow="true"]{box-shadow:inset -18px 0 14px -12px rgba(40,30,20,.20)
 .verify-error{font-size:.85rem;color:var(--badge-failed-text);min-height:1.2em;margin-top:.5rem}
 .verifying-panel{color:var(--text-muted)}
 .verifying-panel .muted{font-size:.85rem;color:var(--text-faint);margin-top:.25rem}
+/* Zero the panels' default <p> margins so the spinner line and the "updates
+   automatically" note sit tight (the .muted margin-top above sets the gap) and
+   no stray 1.05rem trails before the series TOC below. */
+.verifying-panel p,.extending-panel p{margin:0}
 .verify-failure code{word-break:break-all}
+/* Loading spinner shared by the verifying / extending panels. Inline ring that
+   reuses the muted palette; the badge-pulse reduced-motion guard pattern applies. */
+.status-spinner{display:inline-block;width:.8em;height:.8em;margin-right:.45rem;vertical-align:-.08em;border:2px solid var(--border);border-top-color:var(--text-muted);border-radius:9999px;animation:status-spin .7s linear infinite}
+@keyframes status-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.status-spinner{animation:none}}
 
 /* The extend submit sits in a flex-column form; keep it left-aligned. (Visual
    style comes from .btn .btn-primary in the markup.) */
@@ -451,11 +463,44 @@ pre[data-overflow="true"]{box-shadow:inset -18px 0 14px -12px rgba(40,30,20,.20)
 .ask-handoff-note,.handoff-note{font-size:.85rem;color:var(--text-muted);margin:0 0 .5rem}
 .ask-handoff-cmd,.handoff-cmd{margin:0 0 .6rem;white-space:pre-wrap;word-break:break-word;font-size:.85rem}
 .handoff-panel{margin-top:.5rem}
+/* Pending-answer bubble while a connected worker answers out-of-process. */
+.ask-thinking{opacity:.7;font-style:italic}
+/* A worker-answered bubble carries rendered markdown (block elements), so it
+   opts out of the plain-text pre-wrap and trims the outer block margins so the
+   answer sits flush inside the bubble. */
+.ask-rich{white-space:normal}
+.ask-rich > :first-child{margin-top:0}
+.ask-rich > :last-child{margin-bottom:0}
+/* The worker-connected indicator in the Ask drawer header: a small muted dot. */
+.worker-status{font-size:.78rem;color:var(--text-muted);margin-left:auto;margin-right:.6rem;white-space:nowrap}
+/* First-boot live-mode nudge: a bottom-center toast that fades in, then out.
+   z-index sits below the Ask drawer/backdrop (90/85) so opening Ask covers it. */
+.live-nudge{position:fixed;left:50%;bottom:1.25rem;transform:translateX(-50%) translateY(.5rem);z-index:82;display:flex;align-items:center;gap:.6rem;max-width:min(92vw,38rem);padding:.7rem .9rem;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:var(--shadow-md);font-size:.88rem;line-height:1.45;opacity:0;transition:opacity .35s ease,transform .35s ease}
+.live-nudge.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.live-nudge code{font-size:.85em}
+.live-nudge .live-nudge-dot{color:var(--accent);flex:none}
+.live-nudge .live-nudge-close{flex:none;background:none;border:none;color:var(--text-muted);font-size:1.15rem;line-height:1;cursor:pointer;padding:0 .15rem;margin-left:.2rem}
+.live-nudge .live-nudge-close:hover{color:var(--text)}
 #askForm{display:flex;flex-direction:column;gap:.6rem;padding:1rem;border-top:1px solid var(--border)}
 #askInput{width:100%;resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-md);padding:.55rem .7rem;font-family:var(--font-body);font-size:.92rem;line-height:1.4}
 #askInput:focus{outline:2px solid var(--accent);outline-offset:1px}
 .ask-controls{display:flex;gap:.5rem;justify-content:flex-end}
 /* #askSubmit / #askStop are .btn .btn-sm (primary / danger) in the markup. */
+/* List items that contain an exercise checkbox (tight or loose lists).*/
+#exercises + ul{counter-reset:exercise}
+#exercises + ul li:has(>.exercise-check),#exercises + ul li:has(>p>.exercise-check){--ex-pt:.3rem;--ex-lh:1.7;list-style:none;position:relative;counter-increment:exercise;padding:var(--ex-pt) 0 var(--ex-pt) 4.5rem;line-height:var(--ex-lh);text-decoration:line-through;text-decoration-color:transparent;background:transparent;box-shadow:inset 3px 0 0 transparent;transition:color var(--transition),opacity var(--transition),background var(--transition),box-shadow var(--transition),text-decoration-color var(--transition)}
+#exercises + ul li:has(.exercise-check)>p:first-of-type{margin-top:0}
+#exercises + ul li:has(.exercise-check)>p:last-of-type{margin-bottom:0}
+#exercises + ul li:has(>.exercise-check)::before,#exercises + ul li:has(>p>.exercise-check)::before{content:counter(exercise)".";position:absolute;left:.5rem;top:var(--ex-pt);line-height:var(--ex-lh);font-family:var(--font-display);font-weight:700;color:var(--text-subtle);text-decoration:none;transition:color var(--transition)}
+#exercises + ul .exercise-check{-webkit-appearance:none;appearance:none;box-sizing:border-box;font:inherit;width:1.4rem;height:1.4rem;border-radius:8px;border:1.5px solid var(--border);background:var(--surface);position:absolute;left:2.1rem;top:calc(var(--ex-pt) + (var(--ex-lh)*1em - 1.4rem)/2);margin:0;cursor:pointer;transition:background var(--transition),border-color var(--transition),box-shadow var(--transition),transform 120ms ease}
+#exercises + ul .exercise-check:hover{border-color:color-mix(in srgb,var(--accent) 55%,var(--border));background:color-mix(in srgb,var(--accent) 8%,var(--surface))}
+#exercises + ul .exercise-check:active{transform:scale(.9)}
+#exercises + ul .exercise-check:focus-visible{outline:2px solid color-mix(in srgb,var(--accent) 45%,transparent);outline-offset:2px}
+#exercises + ul .exercise-check:checked{background-color:var(--accent);border-color:var(--accent);box-shadow:inset 0 1px 0 rgba(0,0,0,.06);background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 10'><path d='M1 5.2 L4.2 8.4 L11 1.2' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' fill='none'/></svg>");background-repeat:no-repeat;background-position:center;background-size:62%;animation:ex-check-pop .26s ease}
+@keyframes ex-check-pop{0%{transform:scale(1)}45%{transform:scale(1.16)}100%{transform:scale(1)}}
+#exercises + ul li:has(.exercise-check:checked){opacity:.85;color:var(--text-faint);text-decoration-color:currentColor;background:color-mix(in srgb,var(--accent-soft) 10%,transparent);box-shadow:inset 3px 0 0 var(--accent)}
+#exercises + ul li:has(.exercise-check:checked)::before{color:var(--accent)}
+@media (prefers-reduced-motion:reduce){#exercises + ul .exercise-check{animation:none;transition:none}}
 
 /* ---- List page (body.list) ---------------------------------------------- */
 body.list{max-width:46rem;margin:clamp(1.5rem,.9rem + 2vw,3rem) auto;padding:0 clamp(.9rem,.4rem + 2vw,1.5rem)}
